@@ -1,0 +1,415 @@
+
+/* =========================================
+   SWEETY - ACTIVITY TRACKER
+   Medical Clean Theme
+========================================= */
+
+.activity-dashboard {
+  background: #ffffff;
+  border: 1px solid #e7f0eb;
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 4px 20px rgba(22, 77, 50, 0.04);
+}
+
+/* HEADER */
+
+.activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.activity-eyebrow {
+  color: #0ca17a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+}
+
+.activity-header h2 {
+  margin: 10px 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #173e32;
+}
+
+.activity-header p {
+  color: #81998e;
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* DATE PICKER */
+
+.activity-date {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.activity-date label {
+  color: #729084;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.activity-date input {
+  border: 1px solid #dceee4;
+  border-radius: 10px;
+  padding: 11px 13px;
+  background: #f8fdf9;
+  color: #234b3e;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.activity-date input:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+/* PROGRESS CARD */
+
+.activity-progress-card {
+  background: linear-gradient(135deg, #e9f9f0, #f5fcf8);
+  border: 1px solid #d7f1e3;
+  border-radius: 18px;
+  padding: 25px;
+  margin-bottom: 30px;
+}
+
+.activity-progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+}
+
+.activity-progress-label {
+  color: #0e9971;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.activity-progress-top h3 {
+  margin: 12px 0 8px;
+  color: #087f60;
+  font-size: 32px;
+  font-weight: 800;
+}
+
+.activity-progress-top h3 span {
+  color: #7b9c8e;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.activity-progress-top p {
+  margin: 0;
+  color: #779789;
+  font-size: 12px;
+}
+
+.activity-score-icon {
+  width: 65px;
+  height: 65px;
+  min-width: 65px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border-radius: 18px;
+  font-size: 31px;
+}
+
+/* PROGRESS BAR */
+
+.activity-progress-track {
+  width: 100%;
+  height: 12px;
+  margin-top: 25px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #d4eade;
+}
+
+.activity-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0a9e77, #4ad4a3);
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+.activity-progress-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: #729486;
+  font-size: 12px;
+}
+
+.activity-progress-footer strong {
+  color: #098866;
+}
+
+/* SECTION TITLE */
+
+.activity-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.activity-section-title h3 {
+  margin: 0 0 7px;
+  color: #173e32;
+  font-size: 19px;
+}
+
+.activity-section-title p {
+  margin: 0;
+  color: #91a79c;
+  font-size: 12px;
+}
+
+.activity-count {
+  padding: 9px 13px;
+  border-radius: 30px;
+  background: #e6f8ef;
+  color: #0b9870;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ACTIVITY CARDS GRID */
+
+.activity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.activity-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 190px;
+  padding: 20px;
+  border: 1px solid #e4efe8;
+  border-radius: 16px;
+  background: #ffffff;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.activity-item:hover {
+  transform: translateY(-3px);
+  border-color: #9cddbf;
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.08);
+}
+
+.activity-item-done {
+  background: #f0fbf5;
+  border-color: #80d9ae;
+}
+
+/* HIDDEN CHECKBOX */
+
+.activity-item input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.activity-item:focus-within {
+  outline: 3px solid #6ee7b7;
+  outline-offset: 2px;
+}
+
+/* CARD TOP */
+
+.activity-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 17px;
+}
+
+.activity-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  background: #e8f8ef;
+  font-size: 24px;
+}
+
+.activity-check {
+  width: 23px;
+  height: 23px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #cadfd3;
+  border-radius: 7px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.activity-check.checked {
+  background: #0eae80;
+  border-color: #0eae80;
+}
+
+/* CARD CONTENT */
+
+.activity-item h4 {
+  margin: 0 0 8px;
+  color: #214739;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.activity-item p {
+  margin: 0 0 20px;
+  color: #8ba49a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.activity-points {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 7px 11px;
+  border-radius: 20px;
+  background: #e7f8ef;
+  color: #0b9870;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.activity-item-done .activity-points {
+  background: #0eae80;
+  color: #ffffff;
+}
+
+/* COMPLETION CELEBRATION */
+
+.activity-celebration {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px;
+  margin-top: 25px;
+  border-radius: 15px;
+  background: linear-gradient(110deg, #0b9674, #29bd96);
+  color: #ffffff;
+}
+
+.activity-celebration > span {
+  font-size: 35px;
+}
+
+.activity-celebration h3 {
+  margin: 0 0 7px;
+  font-size: 18px;
+}
+
+.activity-celebration p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #e2fff3;
+}
+
+/* DISCLAIMER */
+
+.activity-disclaimer {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 25px;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f5faf7;
+}
+
+.activity-disclaimer span {
+  font-size: 18px;
+}
+
+.activity-disclaimer p {
+  margin: 0;
+  color: #7b998b;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+/* RESPONSIVE TABLET */
+
+@media (max-width: 1100px) {
+  .activity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* RESPONSIVE MOBILE */
+
+@media (max-width: 650px) {
+  .activity-dashboard {
+    padding: 18px;
+  }
+
+  .activity-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .activity-date {
+    width: 100%;
+  }
+
+  .activity-date input {
+    width: 100%;
+  }
+
+  .activity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-section-title {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .activity-progress-card {
+    padding: 18px;
+  }
+
+  .activity-progress-top h3 {
+    font-size: 27px;
+  }
+
+  .activity-item {
+    min-height: 170px;
+  }
+}
