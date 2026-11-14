@@ -1,4 +1,3 @@
-
 const express = require("express");
 const router = express.Router();
 const pool = require("../db");
@@ -62,6 +61,16 @@ function validateReading(body) {
     return "Please enter a glucose value.";
   }
 
+  if (
+    typeof glucose_level !== "number" &&
+    (
+      typeof glucose_level !== "string" ||
+      !/^\d+$/.test(glucose_level.trim())
+    )
+  ) {
+    return "Please enter a whole number between 40 and 600 mg/dL.";
+  }
+
   const glucose = Number(glucose_level);
 
   if (
@@ -93,6 +102,10 @@ function validateReading(body) {
     return "Please select a valid measurement date and time.";
   }
 
+  if (!isValidDate(measured_at.slice(0, 10))) {
+    return "Please select a valid measurement date and time.";
+  }
+
   const measuredDate = new Date(measured_at);
 
   if (Number.isNaN(measuredDate.getTime())) {
@@ -111,7 +124,14 @@ function validateReading(body) {
 }
 
 function validateId(id) {
-  return /^\d+$/.test(String(id)) && Number(id) > 0;
+  const numericId = Number(id);
+
+  return (
+    /^\d+$/.test(String(id)) &&
+    Number.isSafeInteger(numericId) &&
+    numericId > 0 &&
+    numericId <= 2147483647
+  );
 }
 
 function handleError(error, res) {
@@ -287,6 +307,7 @@ router.put("/:id", async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
 
+    // Serialize writes for this user.
     await client.query(
       "SELECT id FROM users WHERE id = $1 FOR UPDATE",
       [req.userId]
@@ -370,6 +391,15 @@ router.put("/:id", async (req, res) => {
         req.userId,
       ]
     );
+
+    if (!result.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+
+      return res.status(404).json({
+        error: "Reading not found.",
+      });
+    }
 
     await client.query("COMMIT");
     transactionStarted = false;
