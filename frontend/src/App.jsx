@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import "./App.css";
 
@@ -22,6 +21,7 @@ const SLOTS = [
 ];
 
 const PROFILE_API = "http://localhost:5000/api/auth/profile";
+const PAGE_SIZE = 5;
 
 function getLocalDateTime(date = new Date()) {
   const year = date.getFullYear();
@@ -48,36 +48,65 @@ function formatDateTime(value) {
   });
 }
 
+function formatReadingDate(value) {
+  if (!value) return "";
+
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getGlucoseError(value) {
+  if (String(value).trim() === "") {
+    return "Please enter your blood glucose level.";
+  }
+
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || !Number.isInteger(number)) {
+    return "Please enter a whole number without decimal values.";
+  }
+
+  if (number < 40 || number > 600) {
+    return "Please enter a glucose value between 40 and 600 mg/dL.";
+  }
+
+  return "";
+}
+
 function prepareReading(value, glucose, meal) {
+  const glucoseError = getGlucoseError(glucose);
+
+  if (glucoseError) {
+    throw new Error(glucoseError);
+  }
+
+  if (!SLOTS.includes(meal)) {
+    throw new Error("Please select an available reading type.");
+  }
+
   if (!value) {
-    throw new Error("Please select a measurement date and time.");
+    throw new Error("Please select your measurement date and time.");
   }
 
   const measuredDate = new Date(value);
 
   if (Number.isNaN(measuredDate.getTime())) {
-    throw new Error("Invalid measurement date and time.");
+    throw new Error("Please select a valid date and time.");
   }
 
   if (measuredDate > new Date()) {
-    throw new Error("Measurement time cannot be in the future.");
-  }
-
-  const number = Number(glucose);
-
-  if (
-    String(glucose).trim() === "" ||
-    !Number.isInteger(number) ||
-    number < 40 ||
-    number > 600
-  ) {
-    throw new Error(
-      "Please enter a whole number between 40 and 600 mg/dL."
-    );
+    throw new Error("Please choose the current time or an earlier time.");
   }
 
   return {
-    glucose: number,
+    glucose: Number(glucose),
     meal,
     date: value.slice(0, 10),
     measuredAt: measuredDate.toISOString(),
@@ -89,7 +118,7 @@ function getNextMeal(readings, date) {
     .filter((reading) => reading.date === date)
     .map((reading) => reading.meal);
 
-  return SLOTS.find((slot) => !recorded.includes(slot)) || SLOTS[0];
+  return SLOTS.find((slot) => !recorded.includes(slot)) || "";
 }
 
 export default function App({ user, onLogout }) {
@@ -106,39 +135,56 @@ export default function App({ user, onLogout }) {
   const [updating, setUpdating] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // ADD READING FORM
   const [glucose, setGlucose] = useState("");
   const [meal, setMeal] = useState(SLOTS[0]);
   const [measuredAt, setMeasuredAt] = useState(
     () => getLocalDateTime()
   );
+  const [formError, setFormError] = useState("");
 
+  // EDIT READING FORM
   const [editingId, setEditingId] = useState(null);
   const [editGlucose, setEditGlucose] = useState("");
   const [editMeal, setEditMeal] = useState(SLOTS[0]);
   const [editMeasuredAt, setEditMeasuredAt] = useState("");
+  const [editError, setEditError] = useState("");
 
+  // PAGINATION AND DATE FILTERS
+  const [currentPageNumber, setCurrentPageNumber] = useState(1);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  // DIALOGS AND NOTIFICATIONS
   const [deleteId, setDeleteId] = useState(null);
   const [notification, setNotification] = useState(null);
-
-  // CUSTOM LOGOUT DIALOG STATE
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  // OPEN CUSTOM LOGOUT DIALOG
-  function handleLogout() {
-    setMobileMenuOpen(false);
-    setShowLogoutModal(true);
-  }
+  const today = getLocalDateTime().slice(0, 10);
+  const selectedDate = measuredAt.slice(0, 10);
 
-  // CONFIRM LOGOUT
-  function confirmLogout() {
-    setShowLogoutModal(false);
-    setProfile(null);
-    setReadings([]);
+  const selectedDateReadings = readings.filter(
+    (reading) => reading.date === selectedDate
+  );
 
-    if (typeof onLogout === "function") {
-      onLogout();
-    }
-  }
+  const recordedSlots = selectedDateReadings.map(
+    (reading) => reading.meal
+  );
+
+  const todaysReadings = readings.filter(
+    (reading) => reading.date === today
+  );
+
+  // AUTOMATIC NOTIFICATION DISMISSAL
+  useEffect(() => {
+    if (!notification) return;
+
+    const timer = setTimeout(() => {
+      setNotification(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [notification]);
 
   // LOAD READINGS
   async function refreshReadings() {
@@ -152,7 +198,9 @@ export default function App({ user, onLogout }) {
 
     getReadings()
       .then((data) => {
-        if (!cancelled) setReadings(data);
+        if (!cancelled) {
+          setReadings(data);
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -163,7 +211,9 @@ export default function App({ user, onLogout }) {
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       });
 
     return () => {
@@ -171,7 +221,25 @@ export default function App({ user, onLogout }) {
     };
   }, []);
 
-  // LOAD PROFILE AND SAVED AVATAR
+  // KEEP AVAILABLE TIME SLOTS UPDATED
+  useEffect(() => {
+    setMeal((currentMeal) => {
+      const occupied = readings
+        .filter((reading) => reading.date === selectedDate)
+        .map((reading) => reading.meal);
+
+      if (
+        SLOTS.includes(currentMeal) &&
+        !occupied.includes(currentMeal)
+      ) {
+        return currentMeal;
+      }
+
+      return getNextMeal(readings, selectedDate);
+    });
+  }, [readings, selectedDate]);
+
+  // LOAD USER PROFILE
   useEffect(() => {
     const controller = new AbortController();
     const token = localStorage.getItem("token");
@@ -210,11 +278,9 @@ export default function App({ user, onLogout }) {
     return () => controller.abort();
   }, []);
 
-  // UPDATE AVATAR IN HEADER IMMEDIATELY
   function handleProfileUpdated(updatedUser) {
     setProfile(updatedUser);
 
-    // Keep the locally saved user information in sync.
     localStorage.setItem(
       "sweety-user",
       JSON.stringify(updatedUser)
@@ -222,28 +288,50 @@ export default function App({ user, onLogout }) {
   }
 
   function showNotification(message, type = "success") {
-    setNotification({ message, type });
+    setNotification({
+      message,
+      type,
+    });
   }
 
+  // PAGE NAVIGATION
   function navigate(page) {
     setActivePage(page);
     setMobileMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setNotification(null);
+    setEditingId(null);
+    setEditError("");
+    setFormError("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "auto",
+    });
+
+    document.querySelector(".main-wrapper")?.scrollTo({
+      top: 0,
+      behavior: "auto",
+    });
+  }
+
+  // LOGOUT
+  function handleLogout() {
+    setMobileMenuOpen(false);
+    setShowLogoutModal(true);
+  }
+
+  function confirmLogout() {
+    setShowLogoutModal(false);
+    setProfile(null);
+    setReadings([]);
+    setNotification(null);
+
+    if (typeof onLogout === "function") {
+      onLogout();
+    }
   }
 
   // DASHBOARD CALCULATIONS
-  const today = getLocalDateTime().slice(0, 10);
-
-  const todaysReadings = readings.filter(
-    (reading) => reading.date === today
-  );
-
-  const selectedDate = measuredAt.slice(0, 10);
-
-  const selectedDateReadings = readings.filter(
-    (reading) => reading.date === selectedDate
-  );
-
   const progress = Math.min(
     (todaysReadings.length / 4) * 100,
     100
@@ -268,11 +356,73 @@ export default function App({ user, onLogout }) {
     ? Math.min(...values)
     : "--";
 
+  // DATE RANGE FILTERING
+  const invalidDateRange =
+    Boolean(fromDate && toDate && fromDate > toDate);
+
+  const filteredReadings = [...readings]
+    .filter((reading) => {
+      if (invalidDateRange) return false;
+
+      if (fromDate && reading.date < fromDate) {
+        return false;
+      }
+
+      if (toDate && reading.date > toDate) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.measuredAt || b.date) -
+        new Date(a.measuredAt || a.date)
+    );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredReadings.length / PAGE_SIZE)
+  );
+
+  const safePage = Math.min(
+    currentPageNumber,
+    totalPages
+  );
+
+  const startIndex = (safePage - 1) * PAGE_SIZE;
+
+  const visibleReadings = filteredReadings.slice(
+    startIndex,
+    startIndex + PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setCurrentPageNumber((page) =>
+      Math.min(Math.max(page, 1), totalPages)
+    );
+  }, [totalPages]);
+
+  function changePage(page) {
+    setCurrentPageNumber(page);
+    setEditingId(null);
+    setEditError("");
+  }
+
+  function clearFilters() {
+    setFromDate("");
+    setToDate("");
+    changePage(1);
+  }
+
   // ADD GLUCOSE READING
   async function addReading(event) {
     event.preventDefault();
 
     if (saving || loading) return;
+
+    setFormError("");
+    setNotification(null);
 
     try {
       const payload = prepareReading(
@@ -287,13 +437,13 @@ export default function App({ user, onLogout }) {
 
       if (daily.length >= 4) {
         throw new Error(
-          "You can record only 4 readings per day."
+          "You have completed all four readings for this day. Please choose another date."
         );
       }
 
-      if (daily.some((reading) => reading.meal === meal)) {
+      if (daily.some((reading) => reading.meal === payload.meal)) {
         throw new Error(
-          "This reading type is already recorded for the selected date."
+          "You have already recorded this time slot. Please select another available reading type."
         );
       }
 
@@ -307,31 +457,37 @@ export default function App({ user, onLogout }) {
       ]);
 
       setGlucose("");
-      showNotification("Reading added successfully!");
+      setFormError("");
+      setEditingId(null);
+      clearFilters();
+
+      showNotification(
+        "Your glucose reading has been saved successfully!"
+      );
 
       try {
-        const updated = await refreshReadings();
-        setMeal(getNextMeal(updated, payload.date));
+        await refreshReadings();
       } catch {
-        setMeal(
-          getNextMeal(
-            [...readings, savedReading],
-            payload.date
-          )
-        );
+        // Preserve the successfully saved local reading.
       }
     } catch (error) {
-      showNotification(error.message, "error");
+      setFormError(
+        error.message || "Unable to save your reading. Please try again."
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  // START EDIT READING
+  // START EDITING
   function startEdit(reading) {
+    if (updating || deleting) return;
+
     setEditingId(reading.id);
     setEditGlucose(String(reading.glucose));
     setEditMeal(reading.meal);
+    setEditError("");
+    setNotification(null);
 
     const savedDate = reading.measuredAt
       ? new Date(reading.measuredAt)
@@ -344,11 +500,19 @@ export default function App({ user, onLogout }) {
     );
   }
 
-  // UPDATE READING
+  function cancelEdit() {
+    setEditingId(null);
+    setEditError("");
+  }
+
+  // UPDATE GLUCOSE READING
   async function updateReading(event) {
     event.preventDefault();
 
     if (updating || editingId === null) return;
+
+    setEditError("");
+    setNotification(null);
 
     try {
       const payload = prepareReading(
@@ -365,7 +529,7 @@ export default function App({ user, onLogout }) {
 
       if (otherReadings.length >= 4) {
         throw new Error(
-          "You can record only 4 readings per day."
+          "This date already contains four readings. Please choose another date."
         );
       }
 
@@ -375,7 +539,7 @@ export default function App({ user, onLogout }) {
         )
       ) {
         throw new Error(
-          "This reading type is already recorded for the selected date."
+          "This time slot is already recorded. Please choose another available time slot."
         );
       }
 
@@ -395,31 +559,40 @@ export default function App({ user, onLogout }) {
       );
 
       setEditingId(null);
-      showNotification("Reading updated successfully!");
+      setEditError("");
+
+      showNotification(
+        "Your glucose reading has been updated successfully!"
+      );
 
       try {
         await refreshReadings();
       } catch {
-        // Keep the locally updated reading.
+        // Preserve the successfully updated local reading.
       }
     } catch (error) {
-      showNotification(error.message, "error");
+      setEditError(
+        error.message || "Unable to update your reading. Please try again."
+      );
     } finally {
       setUpdating(false);
     }
   }
 
-  // DELETE READING
+  // DELETE GLUCOSE READING
   async function confirmDelete() {
     if (deleteId === null || deleting) return;
 
     setDeleting(true);
+    setNotification(null);
 
     try {
       await deleteReadingAPI(deleteId);
 
       setReadings((current) =>
-        current.filter((reading) => reading.id !== deleteId)
+        current.filter(
+          (reading) => reading.id !== deleteId
+        )
       );
 
       if (editingId === deleteId) {
@@ -427,27 +600,55 @@ export default function App({ user, onLogout }) {
       }
 
       setDeleteId(null);
-      showNotification("Reading deleted successfully!");
+
+      showNotification(
+        "Your glucose reading has been deleted successfully."
+      );
 
       try {
         await refreshReadings();
       } catch {
-        // Keep the locally updated list.
+        // Preserve the successfully updated local list.
       }
     } catch (error) {
-      showNotification(error.message, "error");
+      setDeleteId(null);
+
+      showNotification(
+        error.message || "Unable to delete your reading.",
+        "error"
+      );
     } finally {
       setDeleting(false);
     }
   }
 
-  // SIDEBAR MENU
+  // SIDEBAR NAVIGATION
   const menuItems = [
-    { id: "dashboard", icon: "▦", label: "Dashboard" },
-    { id: "readings", icon: "🩸", label: "Glucose Readings" },
-    { id: "activity", icon: "♡", label: "Activity Tracker" },
-    { id: "reports", icon: "▥", label: "Health Reports" },
-    { id: "profile", icon: "👤", label: "My Profile" },
+    {
+      id: "dashboard",
+      icon: "▦",
+      label: "Dashboard",
+    },
+    {
+      id: "readings",
+      icon: "🩸",
+      label: "Glucose Readings",
+    },
+    {
+      id: "activity",
+      icon: "♡",
+      label: "Activity Tracker",
+    },
+    {
+      id: "reports",
+      icon: "▥",
+      label: "Health Reports",
+    },
+    {
+      id: "profile",
+      icon: "👤",
+      label: "My Profile",
+    },
   ];
 
   const currentPage = menuItems.find(
@@ -461,21 +662,52 @@ export default function App({ user, onLogout }) {
     year: "numeric",
   });
 
-  // READING FORM
-  function renderReadingForm() {
+  // USER-FRIENDLY INLINE ERROR
+  function renderFormError(message) {
+    if (!message) return null;
+
     return (
-      <section className="card form-card">
+      <div
+        className="friendly-form-error"
+        role="alert"
+        style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          background: "#fff7ed",
+          border: "1px solid #fed7aa",
+          color: "#9a3412",
+          fontSize: "13px",
+          lineHeight: "1.6",
+          marginTop: "10px",
+        }}
+      >
+        <strong>Let's check that again</strong>
+
+        <p style={{ margin: "4px 0 0" }}>
+          {message}
+        </p>
+      </div>
+    );
+  }
+
+  // ADD READING FORM
+  function renderReadingForm() {
+    const dayCompleted = selectedDateReadings.length >= 4;
+
+    return (
+      <section
+        className="card form-card"
+        style={{ alignSelf: "start" }}
+      >
         <div className="section-heading">
           <div>
             <span className="eyebrow">
-              GLUCOSE MONITORING
+              DAILY MONITORING
             </span>
 
             <h2>Record Blood Glucose</h2>
 
-            <p>
-              Keep your daily health records up to date.
-            </p>
+            <p>Small steps towards better health.</p>
           </div>
 
           <div className="section-icon">🩸</div>
@@ -484,6 +716,7 @@ export default function App({ user, onLogout }) {
         <form
           className="reading-form"
           onSubmit={addReading}
+          noValidate
         >
           <div className="form-group">
             <label htmlFor="glucose">
@@ -497,38 +730,28 @@ export default function App({ user, onLogout }) {
                 min="40"
                 max="600"
                 step="1"
+                inputMode="numeric"
                 value={glucose}
-                placeholder="Enter glucose value"
-                onChange={(event) =>
-                  setGlucose(event.target.value)
-                }
+                placeholder="e.g. 120"
+                onChange={(event) => {
+                  setGlucose(event.target.value);
+                  setFormError("");
+                }}
+                onBlur={() => {
+                  if (glucose !== "") {
+                    setFormError(getGlucoseError(glucose));
+                  }
+                }}
                 disabled={saving}
                 required
               />
 
               <span>mg/dL</span>
             </div>
-          </div>
 
-          <div className="form-group">
-            <label htmlFor="meal">
-              Reading Type
-            </label>
-
-            <select
-              id="meal"
-              value={meal}
-              onChange={(event) =>
-                setMeal(event.target.value)
-              }
-              disabled={saving}
-            >
-              {SLOTS.map((slot) => (
-                <option key={slot} value={slot}>
-                  {slot}
-                </option>
-              ))}
-            </select>
+            <p className="form-note">
+              Enter a whole number between 40 and 600 mg/dL.
+            </p>
           </div>
 
           <div className="form-group">
@@ -543,7 +766,9 @@ export default function App({ user, onLogout }) {
               max={getLocalDateTime()}
               onChange={(event) => {
                 const value = event.target.value;
+
                 setMeasuredAt(value);
+                setFormError("");
 
                 if (value) {
                   setMeal(
@@ -557,45 +782,334 @@ export default function App({ user, onLogout }) {
               disabled={saving}
               required
             />
+          </div>
 
-            <p className="form-note">
-              💚 Keep track of your daily glucose readings.
+          <div className="form-group">
+            <label htmlFor="meal">
+              Reading Type
+            </label>
+
+            <select
+              id="meal"
+              value={meal}
+              onChange={(event) => {
+                setMeal(event.target.value);
+                setFormError("");
+              }}
+              disabled={saving || dayCompleted}
+              required
+            >
+              <option value="" disabled>
+                {dayCompleted
+                  ? "All readings completed"
+                  : "Select reading type"}
+              </option>
+
+              {SLOTS.map((slot) => {
+                const recorded = recordedSlots.includes(slot);
+
+                return (
+                  <option
+                    key={slot}
+                    value={slot}
+                    disabled={recorded}
+                  >
+                    {slot}
+                    {recorded ? " — Recorded ✓" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {renderFormError(formError)}
+
+          <div
+            style={{
+              padding: "14px",
+              background: "#ecfdf5",
+              border: "1px solid #d1fae5",
+              borderRadius: "12px",
+              margin: "12px 0",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "8px",
+                color: "#047857",
+                fontSize: "13px",
+                fontWeight: 600,
+              }}
+            >
+              <span>Daily reading progress</span>
+
+              <span>
+                {selectedDateReadings.length}/4
+              </span>
+            </div>
+
+            <div
+              className="progress-track"
+              style={{ marginTop: "10px" }}
+            >
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${Math.min(
+                    selectedDateReadings.length * 25,
+                    100
+                  )}%`,
+                }}
+              />
+            </div>
+
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#047857",
+                margin: "10px 0 0",
+              }}
+            >
+              {dayCompleted
+                ? "Great job! All four readings are completed for this date."
+                : `${4 - selectedDateReadings.length} reading slots available for this date.`}
             </p>
           </div>
 
           <button
             className="primary-btn"
             type="submit"
-            disabled={
-              saving ||
-              loading ||
-              selectedDateReadings.length >= 4
-            }
+            disabled={saving || loading || dayCompleted}
           >
             {saving
-              ? "Saving..."
-              : selectedDateReadings.length >= 4
-                ? "✓ All 4 Readings Recorded"
-                : "＋ Save Glucose Reading"}
+              ? "Saving your reading..."
+              : dayCompleted
+              ? "✓ Daily Readings Completed"
+              : "＋ Save Glucose Reading"}
           </button>
 
           <p className="form-note">
-            {selectedDateReadings.length} of 4 readings
-            recorded for the selected date.
+            💚 Every reading helps you keep track of your health.
           </p>
         </form>
       </section>
     );
   }
 
+  // EDIT READING FORM
+  function renderEditForm() {
+    const editDate = editMeasuredAt.slice(0, 10);
+
+    const occupiedSlots = readings
+      .filter(
+        (reading) =>
+          reading.date === editDate &&
+          reading.id !== editingId
+      )
+      .map((reading) => reading.meal);
+
+    return (
+      <form
+        className="edit-form"
+        onSubmit={updateReading}
+        noValidate
+      >
+        <h3>Edit Glucose Reading</h3>
+
+        <div className="form-group">
+          <label htmlFor="editGlucose">
+            Blood Glucose Level (mg/dL)
+          </label>
+
+          <input
+            id="editGlucose"
+            type="number"
+            min="40"
+            max="600"
+            step="1"
+            inputMode="numeric"
+            value={editGlucose}
+            onChange={(event) => {
+              setEditGlucose(event.target.value);
+              setEditError("");
+            }}
+            disabled={updating}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="editMeasuredAt">
+            Measurement Date &amp; Time
+          </label>
+
+          <input
+            id="editMeasuredAt"
+            type="datetime-local"
+            value={editMeasuredAt}
+            max={getLocalDateTime()}
+            onChange={(event) => {
+              const value = event.target.value;
+
+              setEditMeasuredAt(value);
+              setEditError("");
+
+              const occupied = readings
+                .filter(
+                  (reading) =>
+                    reading.id !== editingId &&
+                    reading.date === value.slice(0, 10)
+                )
+                .map((reading) => reading.meal);
+
+              if (occupied.includes(editMeal)) {
+                setEditMeal(
+                  SLOTS.find(
+                    (slot) => !occupied.includes(slot)
+                  ) || ""
+                );
+              }
+            }}
+            disabled={updating}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="editMeal">
+            Reading Type
+          </label>
+
+          <select
+            id="editMeal"
+            value={editMeal}
+            onChange={(event) => {
+              setEditMeal(event.target.value);
+              setEditError("");
+            }}
+            disabled={updating}
+          >
+            <option value="" disabled>
+              Select an available time slot
+            </option>
+
+            {SLOTS.map((slot) => (
+              <option
+                key={slot}
+                value={slot}
+                disabled={occupiedSlots.includes(slot)}
+              >
+                {slot}
+                {occupiedSlots.includes(slot)
+                  ? " — Recorded ✓"
+                  : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {renderFormError(editError)}
+
+        <div className="action-buttons">
+          <button
+            type="submit"
+            className="save-btn"
+            disabled={updating}
+          >
+            {updating
+              ? "Saving..."
+              : "✓ Save Changes"}
+          </button>
+
+          <button
+            type="button"
+            className="cancel-btn"
+            onClick={cancelEdit}
+            disabled={updating}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  // PAGINATION
+  function renderPagination() {
+    if (filteredReadings.length === 0) return null;
+
+    return (
+      <div
+        className="history-pagination"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "12px",
+          paddingTop: "18px",
+          marginTop: "18px",
+          borderTop: "1px solid #e2e8f0",
+        }}
+      >
+        <span
+          style={{
+            color: "#64748b",
+            fontSize: "12px",
+          }}
+        >
+          Showing {startIndex + 1}–
+          {Math.min(
+            startIndex + PAGE_SIZE,
+            filteredReadings.length
+          )}{" "}
+          of {filteredReadings.length}
+        </span>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            type="button"
+            className="cancel-btn"
+            disabled={safePage === 1 || updating}
+            onClick={() => changePage(safePage - 1)}
+          >
+            ← Previous
+          </button>
+
+          <span
+            style={{
+              fontSize: "13px",
+              color: "#047857",
+              fontWeight: 600,
+            }}
+          >
+            {safePage} / {totalPages}
+          </span>
+
+          <button
+            type="button"
+            className="save-btn"
+            disabled={safePage === totalPages || updating}
+            onClick={() => changePage(safePage + 1)}
+          >
+            Next →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // READING HISTORY
   function renderReadings() {
-    const sorted = [...readings].sort(
-      (a, b) =>
-        new Date(b.measuredAt || b.date) -
-        new Date(a.measuredAt || a.date)
-    );
-
     return (
       <section className="card history-card">
         <div className="section-heading">
@@ -604,11 +1118,9 @@ export default function App({ user, onLogout }) {
               HEALTH HISTORY
             </span>
 
-            <h2>Recent Glucose Readings</h2>
+            <h2>Glucose History</h2>
 
-            <p>
-              View and manage your recorded measurements.
-            </p>
+            <p>Review and manage your saved readings.</p>
           </div>
 
           <span className="count-badge">
@@ -616,163 +1128,198 @@ export default function App({ user, onLogout }) {
           </span>
         </div>
 
+        {/* DATE RANGE FILTER */}
+        <div
+          className="history-filters"
+          style={{
+            padding: "14px",
+            background: "#f8fbf9",
+            border: "1px solid #e1eee7",
+            borderRadius: "12px",
+            marginBottom: "18px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "10px",
+              marginBottom: "12px",
+            }}
+          >
+            <strong style={{ fontSize: "13px" }}>
+              Filter by date
+            </strong>
+
+            <button
+              className="cancel-btn"
+              type="button"
+              onClick={clearFilters}
+              disabled={updating}
+            >
+              Reset
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            <div className="form-group">
+              <label htmlFor="fromDate">
+                From Date
+              </label>
+
+              <input
+                id="fromDate"
+                type="date"
+                value={fromDate}
+                max={toDate || today}
+                disabled={updating}
+                onChange={(event) => {
+                  setFromDate(event.target.value);
+                  changePage(1);
+                }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="toDate">
+                To Date
+              </label>
+
+              <input
+                id="toDate"
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                max={today}
+                disabled={updating}
+                onChange={(event) => {
+                  setToDate(event.target.value);
+                  changePage(1);
+                }}
+              />
+            </div>
+          </div>
+
+          {invalidDateRange &&
+            renderFormError(
+              "The From Date must be on or before the To Date."
+            )}
+        </div>
+
         {loading ? (
           <div className="empty-state">
             <h3>Loading your readings...</h3>
+
+            <p>Please wait a moment.</p>
           </div>
-        ) : readings.length === 0 ? (
+        ) : invalidDateRange ? (
+          <div className="empty-state">
+            <h3>Choose a valid date range</h3>
+
+            <p>Adjust the dates above to view your readings.</p>
+          </div>
+        ) : filteredReadings.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📋</div>
 
-            <h3>No readings yet</h3>
+            <h3>
+              {readings.length === 0
+                ? "No readings yet"
+                : "No readings found"}
+            </h3>
 
             <p>
-              Add your first glucose reading to start tracking.
+              {readings.length === 0
+                ? "Add your first glucose reading to begin your health journey."
+                : "There are no readings within the selected date range."}
             </p>
+
+            {readings.length > 0 && (
+              <button
+                type="button"
+                className="save-btn"
+                onClick={clearFilters}
+              >
+                View All Readings
+              </button>
+            )}
           </div>
         ) : (
-          <div className="reading-list">
-            {sorted.map((reading) => (
-              <div
-                className="reading-item"
-                key={reading.id}
-              >
-                {editingId === reading.id ? (
-                  <form
-                    className="edit-form"
-                    onSubmit={updateReading}
-                  >
-                    <h3>✏️ Edit Reading</h3>
+          <>
+            <div className="reading-list">
+              {visibleReadings.map((reading) => (
+                <div
+                  className="reading-item"
+                  key={reading.id}
+                >
+                  {editingId === reading.id ? (
+                    renderEditForm()
+                  ) : (
+                    <>
+                      <div className="reading-main">
+                        <div className="reading-symbol">
+                          🩸
+                        </div>
 
-                    <div className="form-group">
-                      <label>
-                        Glucose Level (mg/dL)
-                      </label>
+                        <div className="reading-details">
+                          <h3>
+                            {reading.glucose}
+                            <span> mg/dL</span>
+                          </h3>
 
-                      <input
-                        type="number"
-                        min="40"
-                        max="600"
-                        step="1"
-                        value={editGlucose}
-                        onChange={(event) =>
-                          setEditGlucose(event.target.value)
-                        }
-                        disabled={updating}
-                        required
-                      />
-                    </div>
+                          <p className="reading-type">
+                            {reading.meal}
+                          </p>
 
-                    <div className="form-group">
-                      <label>Reading Type</label>
+                          <p className="reading-date">
+                            {formatReadingDate(reading.date)}
+                          </p>
 
-                      <select
-                        value={editMeal}
-                        onChange={(event) =>
-                          setEditMeal(event.target.value)
-                        }
-                        disabled={updating}
-                      >
-                        {SLOTS.map((slot) => (
-                          <option key={slot} value={slot}>
-                            {slot}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-group">
-                      <label>
-                        Measurement Date &amp; Time
-                      </label>
-
-                      <input
-                        type="datetime-local"
-                        value={editMeasuredAt}
-                        max={getLocalDateTime()}
-                        onChange={(event) =>
-                          setEditMeasuredAt(event.target.value)
-                        }
-                        disabled={updating}
-                        required
-                      />
-                    </div>
-
-                    <div className="action-buttons">
-                      <button
-                        type="submit"
-                        className="save-btn"
-                        disabled={updating}
-                      >
-                        {updating
-                          ? "Updating..."
-                          : "Save Changes"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="cancel-btn"
-                        onClick={() => setEditingId(null)}
-                        disabled={updating}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <>
-                    <div className="reading-main">
-                      <div className="reading-symbol">
-                        🩸
+                          <p className="reading-entered">
+                            Recorded:{" "}
+                            {formatDateTime(reading.measuredAt)}
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="reading-details">
-                        <h3>
-                          {reading.glucose}
-                          <span> mg/dL</span>
-                        </h3>
+                      <div className="action-buttons">
+                        <button
+                          type="button"
+                          className="edit-btn"
+                          disabled={updating || deleting}
+                          onClick={() => startEdit(reading)}
+                        >
+                          ✏️ Edit
+                        </button>
 
-                        <p className="reading-type">
-                          {reading.meal}
-                        </p>
-
-                        <p className="reading-date">
-                          {reading.date}
-                        </p>
-
-                        <p className="reading-entered">
-                          Recorded:{" "}
-                          {formatDateTime(
-                            reading.measuredAt
-                          )}
-                        </p>
+                        <button
+                          type="button"
+                          className="delete-btn"
+                          disabled={updating || deleting}
+                          onClick={() => {
+                            setNotification(null);
+                            setDeleteId(reading.id);
+                          }}
+                        >
+                          🗑️ Delete
+                        </button>
                       </div>
-                    </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
 
-                    <div className="action-buttons">
-                      <button
-                        type="button"
-                        className="edit-btn"
-                        onClick={() => startEdit(reading)}
-                      >
-                        ✏️ Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        className="delete-btn"
-                        onClick={() =>
-                          setDeleteId(reading.id)
-                        }
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
+            {renderPagination()}
+          </>
         )}
       </section>
     );
@@ -788,11 +1335,15 @@ export default function App({ user, onLogout }) {
               💚 YOUR HEALTH, OUR PRIORITY
             </span>
 
-            <h1>Hello, welcome to Sweety!</h1>
+            <h1>
+              Hello{profile?.name
+                ? `, ${profile.name.split(" ")[0]}`
+                : ""}!
+            </h1>
 
             <p>
-              Track your glucose levels and build healthier
-              habits, one day at a time.
+              Take charge of your health, one reading
+              at a time. Welcome to Sweety.
             </p>
 
             <button
@@ -814,9 +1365,7 @@ export default function App({ user, onLogout }) {
           <div>
             <h2>Today's Health Overview</h2>
 
-            <p>
-              Your daily glucose monitoring summary
-            </p>
+            <p>Your daily glucose monitoring summary</p>
           </div>
 
           <span className="live-badge">
@@ -908,18 +1457,22 @@ export default function App({ user, onLogout }) {
 
         <GlucoseChart readings={readings} />
 
-        <div className="dashboard-columns">
+        <div
+          className="dashboard-columns"
+          style={{ alignItems: "start" }}
+        >
           {renderReadingForm()}
+
           {renderReadings()}
         </div>
       </>
     );
   }
 
-  // MAIN APPLICATION LAYOUT
+  // MAIN APPLICATION
   return (
     <div className="app-layout">
-      {/* CUSTOM SWEETY LOGOUT DIALOG */}
+      {/* LOGOUT CONFIRMATION */}
       {showLogoutModal && (
         <div
           className="sweety-logout-overlay"
@@ -941,9 +1494,8 @@ export default function App({ user, onLogout }) {
             </h2>
 
             <p>
-              Are you sure you want to log out of Sweety?
-              Your saved health records will be here
-              when you return.
+              Your health records are safely saved.
+              See you again soon!
             </p>
 
             <div className="sweety-logout-actions">
@@ -987,12 +1539,13 @@ export default function App({ user, onLogout }) {
             </div>
 
             <h2 id="delete-modal-title">
-              Delete Reading?
+              Delete this reading?
             </h2>
 
             <p>
-              Are you sure you want to delete this glucose
-              reading? This action cannot be undone.
+              This glucose reading will be permanently
+              removed from your history. Your other
+              readings will remain unchanged.
             </p>
 
             <div className="delete-modal-actions">
@@ -1002,7 +1555,7 @@ export default function App({ user, onLogout }) {
                 onClick={() => setDeleteId(null)}
                 disabled={deleting}
               >
-                Cancel
+                Keep Reading
               </button>
 
               <button
@@ -1020,7 +1573,7 @@ export default function App({ user, onLogout }) {
         </div>
       )}
 
-      {/* NOTIFICATIONS */}
+      {/* AUTO-DISMISSING NOTIFICATIONS */}
       {notification && (
         <div
           className={`sweety-toast ${
@@ -1028,11 +1581,15 @@ export default function App({ user, onLogout }) {
               ? "sweety-toast-error"
               : "sweety-toast-success"
           }`}
-          role="status"
+          role={
+            notification.type === "error"
+              ? "alert"
+              : "status"
+          }
         >
           <span>
             {notification.type === "error"
-              ? "⚠️"
+              ? "⚠"
               : "✓"}
           </span>
 
@@ -1071,6 +1628,7 @@ export default function App({ user, onLogout }) {
 
           <div>
             <h1>Sweety</h1>
+
             <p>Health Companion</p>
           </div>
         </div>
@@ -1088,6 +1646,11 @@ export default function App({ user, onLogout }) {
                 activePage === item.id
                   ? "active"
                   : ""
+              }
+              aria-current={
+                activePage === item.id
+                  ? "page"
+                  : undefined
               }
               onClick={() => navigate(item.id)}
             >
@@ -1108,7 +1671,6 @@ export default function App({ user, onLogout }) {
             </p>
           </div>
 
-          {/* SIDEBAR LOGOUT BUTTON */}
           <button
             type="button"
             onClick={handleLogout}
@@ -1136,7 +1698,6 @@ export default function App({ user, onLogout }) {
 
       {/* MAIN CONTENT */}
       <div className="main-wrapper">
-        {/* TOP BAR */}
         <header className="topbar">
           <div className="topbar-left">
             <button
@@ -1146,17 +1707,20 @@ export default function App({ user, onLogout }) {
                 setMobileMenuOpen(!mobileMenuOpen)
               }
               aria-label="Toggle navigation"
+              aria-expanded={mobileMenuOpen}
             >
               ☰
             </button>
 
             <div>
               <span className="topbar-label">
-                HEALTH OVERVIEW
+                SWEETY HEALTH COMPANION
               </span>
 
               <h2>
-                {currentPage?.label}
+                {activePage === "profile"
+                  ? "Account Settings"
+                  : currentPage?.label}
               </h2>
             </div>
           </div>
@@ -1166,7 +1730,6 @@ export default function App({ user, onLogout }) {
               📅 {todayLabel}
             </span>
 
-            {/* DYNAMIC PROFILE AVATAR */}
             <button
               type="button"
               className="profile-avatar"
@@ -1179,30 +1742,6 @@ export default function App({ user, onLogout }) {
               }}
             >
               {profile?.avatar || "👤"}
-            </button>
-
-            {/* TOP BAR LOGOUT BUTTON */}
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Log out of Sweety"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "7px",
-                padding: "10px 15px",
-                backgroundColor: "#dc2626",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "10px",
-                fontSize: "13px",
-                fontWeight: "700",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              ↪ Logout
             </button>
           </div>
         </header>
@@ -1220,18 +1759,20 @@ export default function App({ user, onLogout }) {
                   DAILY HEALTH TRACKING
                 </span>
 
-                <h1>
-                  Glucose Monitoring
-                </h1>
+                <h1>Glucose Monitoring</h1>
 
                 <p>
-                  Record, review, and manage your blood
-                  glucose measurements.
+                  Record and manage your blood glucose
+                  measurements in one place.
                 </p>
               </div>
 
-              <div className="dashboard-columns">
+              <div
+                className="dashboard-columns"
+                style={{ alignItems: "start" }}
+              >
                 {renderReadingForm()}
+
                 {renderReadings()}
               </div>
 
@@ -1247,13 +1788,11 @@ export default function App({ user, onLogout }) {
                   HEALTHY LIFESTYLE
                 </span>
 
-                <h1>
-                  Activity Tracker
-                </h1>
+                <h1>Daily Activity</h1>
 
                 <p>
-                  Keep track of your daily movement and
-                  lifestyle habits.
+                  Keep track of your daily movement
+                  and lifestyle habits.
                 </p>
               </div>
 
@@ -1269,13 +1808,11 @@ export default function App({ user, onLogout }) {
                   YOUR HEALTH DATA
                 </span>
 
-                <h1>
-                  Health Reports
-                </h1>
+                <h1>Glucose Insights</h1>
 
                 <p>
-                  Explore your daily and monthly glucose
-                  reports.
+                  Understand your recorded glucose levels
+                  with daily and monthly reports.
                 </p>
               </div>
 
@@ -1285,25 +1822,9 @@ export default function App({ user, onLogout }) {
 
           {/* PROFILE */}
           {activePage === "profile" && (
-            <>
-              <div className="page-intro">
-                <span className="eyebrow">
-                  ACCOUNT SETTINGS
-                </span>
-
-                <h1>
-                  My Profile
-                </h1>
-
-                <p>
-                  Manage your Sweety account information.
-                </p>
-              </div>
-
-              <Profile
-                onProfileUpdated={handleProfileUpdated}
-              />
-            </>
+            <Profile
+              onProfileUpdated={handleProfileUpdated}
+            />
           )}
         </main>
 
